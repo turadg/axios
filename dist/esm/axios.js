@@ -347,9 +347,9 @@ function merge(/* obj1, obj2, obj3, ... */) {
 const extend = (a, b, thisArg, {allOwnKeys}= {}) => {
   forEach(b, (val, key) => {
     if (thisArg && isFunction(val)) {
-      a[key] = bind(val, thisArg);
+      Object.defineProperty(a, key, {value: bind(val, thisArg)});
     } else {
-      a[key] = val;
+      Object.defineProperty(a, key, {value: val});
     }
   }, {allOwnKeys});
   return a;
@@ -380,7 +380,9 @@ const stripBOM = (content) => {
  */
 const inherits = (constructor, superConstructor, props, descriptors) => {
   constructor.prototype = Object.create(superConstructor.prototype, descriptors);
-  constructor.prototype.constructor = constructor;
+  Object.defineProperty(constructor.prototype, 'constructor', {
+    value: constructor
+  });
   Object.defineProperty(constructor, 'super', {
     value: superConstructor.prototype
   });
@@ -542,12 +544,14 @@ const isRegExp = kindOfTest('RegExp');
 
 const reduceDescriptors = (obj, reducer) => {
   const descriptors = Object.getOwnPropertyDescriptors(obj);
-  const reducedDescriptors = {};
+  let reducedDescriptors = {};
 
   forEach(descriptors, (descriptor, name) => {
     let ret;
     if ((ret = reducer(descriptor, name, obj)) !== false) {
-      reducedDescriptors[name] = ret || descriptor;
+      reducedDescriptors = {...reducedDescriptors, 
+        [name]: ret || descriptor
+      };
     }
   });
 
@@ -2313,7 +2317,7 @@ function mergeConfig$1(config1, config2) {
   config2 = config2 || {};
   const config = {};
 
-  function getMergedValue(target, source, caseless) {
+  function getMergedValue(target, source, prop, caseless) {
     if (utils$1.isPlainObject(target) && utils$1.isPlainObject(source)) {
       return utils$1.merge.call({caseless}, target, source);
     } else if (utils$1.isPlainObject(source)) {
@@ -2325,11 +2329,11 @@ function mergeConfig$1(config1, config2) {
   }
 
   // eslint-disable-next-line consistent-return
-  function mergeDeepProperties(a, b, caseless) {
+  function mergeDeepProperties(a, b, prop , caseless) {
     if (!utils$1.isUndefined(b)) {
-      return getMergedValue(a, b, caseless);
+      return getMergedValue(a, b, prop , caseless);
     } else if (!utils$1.isUndefined(a)) {
-      return getMergedValue(undefined, a, caseless);
+      return getMergedValue(undefined, a, prop , caseless);
     }
   }
 
@@ -2387,7 +2391,7 @@ function mergeConfig$1(config1, config2) {
     socketPath: defaultToConfig2,
     responseEncoding: defaultToConfig2,
     validateStatus: mergeDirectKeys,
-    headers: (a, b) => mergeDeepProperties(headersToObject(a), headersToObject(b), true)
+    headers: (a, b , prop) => mergeDeepProperties(headersToObject(a), headersToObject(b),prop, true)
   };
 
   utils$1.forEach(Object.keys(Object.assign({}, config1, config2)), function computeConfigValue(prop) {
@@ -3182,6 +3186,14 @@ validators$1.transitional = function transitional(validator, version, message) {
   };
 };
 
+validators$1.spelling = function spelling(correctSpelling) {
+  return (value, opt) => {
+    // eslint-disable-next-line no-console
+    console.warn(`${opt} is likely a misspelling of ${correctSpelling}`);
+    return true;
+  }
+};
+
 /**
  * Assert object's properties type
  *
@@ -3251,9 +3263,9 @@ class Axios$1 {
       return await this._request(configOrUrl, config);
     } catch (err) {
       if (err instanceof Error) {
-        let dummy;
+        let dummy = {};
 
-        Error.captureStackTrace ? Error.captureStackTrace(dummy = {}) : (dummy = new Error());
+        Error.captureStackTrace ? Error.captureStackTrace(dummy) : (dummy = new Error());
 
         // slice off the Error: ... line
         const stack = dummy.stack ? dummy.stack.replace(/^.+\n/, '') : '';
@@ -3307,6 +3319,11 @@ class Axios$1 {
         }, true);
       }
     }
+
+    validator.assertOptions(config, {
+      baseUrl: validators.spelling('baseURL'),
+      withXsrfToken: validators.spelling('withXSRFToken')
+    }, true);
 
     // Set config.method
     config.method = (config.method || this.defaults.method || 'get').toLowerCase();
